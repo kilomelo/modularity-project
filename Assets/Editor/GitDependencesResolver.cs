@@ -1,8 +1,6 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using ModularProject.Runtime;
 using UnityEditor;
 using UnityEditor.PackageManager;
 using UnityEditor.PackageManager.Requests;
@@ -11,7 +9,7 @@ using UnityEngine;
 namespace ModularProject.Editor
 {
     [InitializeOnLoad]
-    internal static class GitDependencesResolver
+    internal static partial class GitDependencesResolver
     {
         private class PackageManifest
         {
@@ -21,6 +19,7 @@ namespace ModularProject.Editor
         private static ListRequest _listRequest;
         static GitDependencesResolver()
         {
+            // Test();
             // Subscribe to the event using the addition assignment operator (+=).
             Events.registeringPackages += RegisteringPackagesEventHandler;
             Events.registeredPackages += RegisteredPackagesEventHandler;
@@ -32,7 +31,7 @@ namespace ModularProject.Editor
         {
             // List packages installed for the project
             _listRequest = Client.List();
-            // EditorApplication.update += ListRequestProgress;
+            Debug.Log("Request installed packages");
             EditorUtility.DisplayProgressBar("List packages installed for the project", "In progress", 0.33f);
         }
         private static void RegisteredPackagesEventHandler(PackageRegistrationEventArgs packageRegistrationEventArgs)
@@ -48,9 +47,13 @@ namespace ModularProject.Editor
                     var packageManifest = JsonUtility.FromJson<PackageManifest>(packageManifestAsset.text);
                     if (null != packageManifest && null != packageManifest.gitDependencies && packageManifest.gitDependencies.Any())
                     {
+                        _listRequest = Client.List();
+                        Debug.Log("Request installed packages");
+                        EditorUtility.DisplayProgressBar("List packages installed for the project", "In progress", 0.33f);
+                        
                         Debug.Log($"Package {addedPackage.displayName} has {packageManifest.gitDependencies.Length} git dependence(s).");
                         // _gitDependencesToAdd.AddRange(packageManifest.gitDependencies.Where(path => !_installedGitDependences.Contains(path)));
-                        CacheFile.AddGitDependencesToInstall(packageManifest.gitDependencies);
+                        PersistentCache.AddGitDependencesToInstall(packageManifest.gitDependencies);
                         if (null == _listRequest && null == _addRequest) RequestNextGitDependences();
                         // Debug.Log($"Ready to install git dependences, cnt: {_gitDependencestotalCnt}");
                         // EditorUtility.DisplayProgressBar("Ready to install git dependences", "Starting", 0f);
@@ -76,9 +79,9 @@ namespace ModularProject.Editor
                         {
                             if (PackageSource.Git != package.source) continue;
                             installedGitDependences.Add(package.repository.url);
-                            Debug.Log($"Installed package: [{package.repository.url}]");
+                            // Debug.Log($"Installed package: [{package.repository.url}]");
                         }
-                        CacheFile.SetInstalledPackageList(installedGitDependences);
+                        PersistentCache.SetInstalledPackageList(installedGitDependences);
                         break;
                     }
                     case >= StatusCode.Failure:
@@ -87,6 +90,7 @@ namespace ModularProject.Editor
                 }
                 EditorUtility.ClearProgressBar();
                 _listRequest = null;
+                RequestNextGitDependences();
             }
 
             if (null == _listRequest && null != _addRequest && _addRequest.IsCompleted)
@@ -106,7 +110,18 @@ namespace ModularProject.Editor
 
         private static void RequestNextGitDependences()
         {
-            var gitDependence = CacheFile.GetNextGitDependeceToInstall();
+            var installed = PersistentCache.InstalledPackageList;
+            string gitDependence;
+            do
+            {
+                gitDependence = PersistentCache.GetNextGitDependeceToInstall();
+                if (installed.Contains(gitDependence))
+                {
+                    Debug.Log($"Skip {gitDependence}");
+                    continue;
+                }
+                break;
+            } while (null != gitDependence);
             if (string.IsNullOrEmpty(gitDependence)) CleanAddProgress();
             else
             {
@@ -122,111 +137,86 @@ namespace ModularProject.Editor
             EditorUtility.ClearProgressBar();
         }
 
-        private static class CacheFile
+        private static class PersistentCache
         {
-            private const string CacheFilePath = "Temp/testCacheFile.txt";
-            private const string Seperator = "---I'm Seperator---\n";
-            private const string PlaceHolder = "I'm PlaceHolder\n";
+            private const string GitPackagesInstalled = "GitDependencesResolver.Installed";
+            private const string GitPackagesDependence = "GitDependencesResolver.Dependence";
             public static void SetInstalledPackageList(List<string> installedList)
             {
                 var sb = new StringBuilder();
-                if (FileUtils.TryReadFileToString(CacheFilePath, out var cachedData))
-                {
-                    if (!string.IsNullOrEmpty(cachedData))
-                    {
-                        var parts = cachedData.Split(Seperator);
-                        if (parts.Length == 2)
-                        {
-                            sb.Append(parts[0]);
-                            sb.Append(Seperator);
-                            installedList.ForEach(url=>sb.Append($"{url}\n"));
-                            FileUtils.WriteStringToFile(sb.ToString(), CacheFilePath);
-                            return;
-                        }
-                        Debug.LogError("Unknown error.");
-                    }
-                }
-                sb.Append(Seperator);
-                installedList.ForEach(url=>sb.Append($"{url}\n"));
-                FileUtils.WriteStringToFile(sb.ToString(), CacheFilePath);
+                installedList.ForEach(url => sb.Append($"{url}\n"));
+                sb.Remove(sb.Length - 1, 1);
+                EditorPrefs.SetString(GitPackagesInstalled, sb.ToString());
             }
 
-            private static string[] InstalledPackageList
+            public static string[] InstalledPackageList
             {
                 get
                 {
-                    if (FileUtils.TryReadFileToString(CacheFilePath, out var cachedData))
-                    {
-                        if (!string.IsNullOrEmpty(cachedData))
-                        {
-                            var parts = cachedData.Split(Seperator);
-                            if (parts.Length > 1)
-                            {
-                                return parts[1].Split('\n');
-                            }
-                        }
-                    }
-                    return null;
+                    var savedString = EditorPrefs.GetString(GitPackagesInstalled);
+                    if (string.IsNullOrEmpty(savedString)) return null;
+                    return savedString.Split('\n');
                 }
             }
 
             public static void AddGitDependencesToInstall(string[] dependences)
             {
+                // remove dumplicated url if exist
+                dependences = dependences.Distinct().ToArray();
                 var sb = new StringBuilder();
+                var savedString = EditorPrefs.GetString(GitPackagesDependence);
+                var urlArray = savedString.Split('\n');
+                if (!string.IsNullOrEmpty(savedString))
+                {
+                    sb.Append(savedString);
+                    sb.Append('\n');
+                }
+
                 foreach (var url in dependences)
                 {
+                    if (urlArray.Contains(url))
+                    {
+                        continue;
+                    }
                     sb.Append($"{url}\n");
                 }
-                if (FileUtils.TryReadFileToString(CacheFilePath, out var cachedData))
+
+                if (sb.Length > 0)
                 {
-                    if (!string.IsNullOrEmpty(cachedData))
-                    {
-                        var parts = cachedData.Split(Seperator);
-                        if (parts.Length == 2)
-                        {
-                            sb.Append(parts[0]);
-                            sb.Append(Seperator);
-                            sb.Append(parts[1]);
-                            FileUtils.WriteStringToFile(sb.ToString(), CacheFilePath);
-                            return;
-                        }
-                        Debug.LogError("Unknown error.");
-                    }
+                    sb.Remove(sb.Length - 1, 1);
+                    EditorPrefs.SetString(GitPackagesDependence, sb.ToString());
                 }
-                sb.Append(Seperator);
-                sb.Append(PlaceHolder);
-                FileUtils.WriteStringToFile(sb.ToString(), CacheFilePath);
+                else
+                {
+                    ClearGitDependencesToInstall();
+                }
             }
 
             public static string GetNextGitDependeceToInstall()
             {
                 var sb = new StringBuilder();
-                if (FileUtils.TryReadFileToString(CacheFilePath, out var cachedData))
+                var savedString = EditorPrefs.GetString(GitPackagesDependence);
+                if (string.IsNullOrEmpty(savedString)) return null;
+                var urlArray = savedString.Split('\n');
+                for (var i = 1; i < urlArray.Length; i++)
                 {
-                    if (!string.IsNullOrEmpty(cachedData))
-                    {
-                        var parts = cachedData.Split(Seperator);
-                        if (parts.Length == 2)
-                        {
-                            var urls = parts[0].Split('\n');
-                            var nextUrl = urls[urls.Length - 1];
-                            if (string.Compare(nextUrl, PlaceHolder, StringComparison.Ordinal) == 0) return null;
-                            for (var i = 0; i < urls.Length - 1; i++)
-                            {
-                                sb.Append($"{urls[i]}\n");
-                            }
-                            sb.Append(parts[0]);
-                            sb.Append(Seperator);
-                            sb.Append(parts[1]);
-                            FileUtils.WriteStringToFile(sb.ToString(), CacheFilePath);
-                            return nextUrl;
-                        }
-                        Debug.LogError("Unknown error.");
-                        return null;
-                    }
-                    return null;
+                    sb.Append($"{urlArray[i]}\n");
                 }
-                return null;
+
+                if (sb.Length > 0)
+                {
+                    EditorPrefs.SetString(GitPackagesDependence, sb.Remove(sb.Length - 1, 1).ToString());
+                }
+                else
+                {
+                    ClearGitDependencesToInstall();
+                }
+                return urlArray[0];
+            }
+
+            public static void ClearGitDependencesToInstall()
+            {
+                EditorPrefs.DeleteKey(GitPackagesDependence);
             }
         }
     }

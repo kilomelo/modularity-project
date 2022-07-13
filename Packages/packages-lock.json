@@ -24,13 +24,6 @@
       "dependencies": {},
       "hash": "a160d7c9a8eeaf436423ad7934e04e6b27c9715c"
     },
-    "com.kilomelo.testpackage": {
-      "version": "https://github.com/kilomelo/module-dev.git?path=/Assets/TestPackage",
-      "depth": 0,
-      "source": "git",
-      "dependencies": {},
-      "hash": "04038da949003c5c9cc16134cfd04ddb4ba6e2ed"
-    },
     "com.kilomelo.toml-for-unity": {
       "version": "https://github.com/kilomelo/toml-for-unity.git",
       "depth": 0,
