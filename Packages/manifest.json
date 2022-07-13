@@ -1,7 +1,10 @@
 {
   "dependencies": {
+    "com.kilomelo.gfw-unity": "https://github.com/kilomelo/gfw-unity.git",
     "com.kilomelo.imugui": "https://github.com/kilomelo/imugui.git",
-    "com.kilomelo.testpackage": "https://github.com/kilomelo/module-dev.git?path=/TestPackage",
+    "com.kilomelo.runtime-inspector": "https://github.com/kilomelo/runtime-inspector.git",
+    "com.kilomelo.testpackage": "https://github.com/kilomelo/module-dev.git?path=/Assets/TestPackage",
+    "com.kilomelo.toml-for-unity": "https://github.com/kilomelo/toml-for-unity.git",
     "com.unity.collab-proxy": "1.15.15",
     "com.unity.ide.rider": "3.0.13",
     "com.unity.ide.visualstudio": "2.0.14",
