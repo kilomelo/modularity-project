@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using System.Linq;
 using UnityEngine;
 
@@ -74,3 +75,4 @@ namespace ModularProject.Editor
         }
     }
 }
+#endif
